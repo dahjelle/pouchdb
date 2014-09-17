@@ -2372,9 +2372,49 @@ adapters.forEach(function (adapters) {
           });
         }
       });
-      remote.put({}, 'gazaa');
+      remote.put({}, 'hazaa');
     });
-    
+    it('retry stuff', function (done) {
+      var remote = new PouchDB(dbs.remote);
+      var Promise = PouchDB.utils.Promise;
+      var allDocs = remote.allDocs;
+      var i = 0;
+      remote.allDocs = function (opts) {
+        if (opts.keys[0] === 'foo') {
+          i++;
+          if (i !== 3) {
+            return Promise.reject(new Error('flunking you'));
+          }
+        }
+        return allDocs.apply(remote, arguments);
+      };
+      var db = new PouchDB(dbs.name);
+      var rep = db.replicate.from(remote, {
+        live: true,
+        retry: true
+      });
+      rep.catch(done);
+      var called = 3;
+      rep.on('change', function () {
+        if ((--called) === 2) {
+          remote.put({}, 'foo').then(function () {
+            return remote.put({}, 'bar');
+          });
+        } else if (!called) {
+          rep.cancel();
+          remote.put({}, 'foo2').then(function () {
+            return remote.put({}, 'bar2');
+          }).then(function () {
+            setTimeout(function () {
+              done();
+            }, 500);
+          });
+        } else if (called < 0) {
+          done(new Error('called too many times'));
+        }
+      });
+      remote.put({}, 'hazaa');
+    });
     if (adapters[1] === 'http') {
       // test validate_doc_update, which is a reasonable substitute
       // for testing design doc replication of non-admin users, since we
